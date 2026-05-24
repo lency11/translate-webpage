@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>网页翻译工具</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>&#127760; 翻译工具</h1>
+
+    <div class="settings">
+      <div class="settings-row">
+        <label>API 地址</label>
+        <input id="apiUrl" type="text" placeholder="https://api.deepseek.com/v1/chat/completions" value="https://api.deepseek.com/v1/chat/completions">
+      </div>
+      <div class="settings-row">
+        <label>模型</label>
+        <input id="model" type="text" placeholder="deepseek-v4-flash" value="deepseek-v4-flash">
+      </div>
+      <div class="settings-row">
+        <label>API Key</label>
+        <input id="apiKey" type="password" placeholder="sk-...">
+      </div>
+      <div class="settings-row">
+        <label>目标语言</label>
+        <select id="lang">
+          <option value="中文">中文</option>
+          <option value="English">English</option>
+          <option value="日本語">日本語</option>
+          <option value="한국어">한국어</option>
+          <option value="Fran&ccedil;ais">Fran&ccedil;ais</option>
+          <option value="Deutsch">Deutsch</option>
+          <option value="Espa&ntilde;ol">Espa&ntilde;ol</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="chat">
+      <div class="output" id="output">
+        <p class="placeholder">输入文本开始翻译</p>
+      </div>
+      <div class="input-area">
+        <textarea id="input" rows="1" placeholder="输入英文或中文..."></textarea>
+        <button id="sendBtn">发送</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const apiUrlEl = document.getElementById("apiUrl");
+    const modelEl = document.getElementById("model");
+    const apiKeyEl = document.getElementById("apiKey");
+    const langEl = document.getElementById("lang");
+    const inputEl = document.getElementById("input");
+    const sendBtn = document.getElementById("sendBtn");
+    const outputEl = document.getElementById("output");
+
+    apiUrlEl.value = localStorage.getItem("apiUrl") || apiUrlEl.value;
+    modelEl.value = localStorage.getItem("model") || modelEl.value;
+    apiKeyEl.value = localStorage.getItem("apiKey") || "";
+    langEl.value = localStorage.getItem("lang") || "中文";
+
+    [apiUrlEl, modelEl, apiKeyEl, langEl].forEach((el) => {
+      el.addEventListener("change", saveSettings);
+    });
+
+    function saveSettings() {
+      localStorage.setItem("apiUrl", apiUrlEl.value);
+      localStorage.setItem("model", modelEl.value);
+      localStorage.setItem("apiKey", apiKeyEl.value);
+      localStorage.setItem("lang", langEl.value);
+    }
+
+    inputEl.addEventListener("input", () => {
+      inputEl.style.height = "auto";
+      inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + "px";
+    });
+
+    const systemPrompt = "你是一个翻译助手。根据内容类型分别处理：\n\n" +
+      "如果是单词：列出每个意思，先用原语言解释该意思，再翻译成" + langEl.value + "，并附上实用例句（例句保持原语言），用 **加粗** 标记每个词义。并在每个例句下方附上对应的" + langEl.value + "翻译。\n" +
+      "如果是句子：直接翻译成" + langEl.value + "。\n\n" +
+      "最终输出的语言必须是" + langEl.value + "，无论原文是什么语言。使用自然简洁的排版，不要使用编号、项目符号或代码块。数字保持不变。";
+
+    const userPrompt = "翻译下面的内容。先判断是单词还是句子：\n\n" +
+      "如果是单词：列出每个意思，先用原语言解释该意思，再翻译成" + langEl.value + "，并附上例句（例句保持原语言）和对应的" + langEl.value + "翻译，用 **加粗** 标记每个词义。\n" +
+      "如果是句子：直接翻译成" + langEl.value + "。\n\n内容：\n";
+
+    async function doTranslate(text) {
+      const lang = langEl.value;
+      const apiUrl = apiUrlEl.value.trim();
+      const model = modelEl.value.trim();
+      const apiKey = apiKeyEl.value.trim();
+
+      if (!apiUrl || !model || !apiKey) {
+        outputEl.innerHTML = '<p class="error">请填好 API 地址、模型和 API Key</p>';
+        return;
+      }
+
+      const resultDiv = document.createElement("div");
+      outputEl.innerHTML = "";
+      outputEl.appendChild(resultDiv);
+
+      const messages = [
+        {
+          role: "system",
+          content: "你是一个翻译助手。根据内容类型分别处理：\n\n如果是单词：列出每个意思，先用原语言解释该意思，再翻译成" + lang + "，并附上实用例句（例句保持原语言），用 **加粗** 标记每个词义。并在每个例句下方附上对应的" + lang + "翻译。\n如果是句子：直接翻译成" + lang + "。\n\n最终输出的语言必须是" + lang + "，无论原文是什么语言。使用自然简洁的排版，不要使用编号、项目符号或代码块。数字保持不变。"
+        },
+        {
+          role: "user",
+          content: "翻译下面的内容。先判断是单词还是句子：\n\n如果是单词：列出每个意思，先用原语言解释该意思，再翻译成" + lang + "，并附上例句（例句保持原语言）和对应的" + lang + "翻译，用 **加粗** 标记每个词义。\n如果是句子：直接翻译成" + lang + "。\n\n内容：\n" + text
+        }
+      ];
+
+      sendBtn.disabled = true;
+
+      try {
+        const resp = await fetch("/api/translate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apiUrl, model, apiKey, messages }),
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.error || "HTTP " + resp.status);
+        }
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split("\n");
+          buf = lines.pop() || "";
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const data = line.slice(6);
+            if (data === "[DONE]") continue;
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.error) throw new Error(parsed.error);
+              if (parsed.content) {
+                resultDiv.insertAdjacentText("beforeend", parsed.content);
+                resultDiv.innerHTML = resultDiv.innerHTML.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+              }
+            } catch (e) {
+              if (e.message !== "Unexpected end of JSON input") throw e;
+            }
+          }
+        }
+      } catch (err) {
+        resultDiv.innerHTML = '<p class="error">错误：' + err.message + "</p>";
+      } finally {
+        sendBtn.disabled = false;
+      }
+    }
+
+    sendBtn.onclick = () => {
+      const text = inputEl.value.trim();
+      if (!text) return;
+      inputEl.value = "";
+      inputEl.style.height = "auto";
+      doTranslate(text);
+    };
+
+    inputEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendBtn.onclick();
+      }
+    });
+  </script>
+</body>
+</html>

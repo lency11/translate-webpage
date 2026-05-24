@@ -1,0 +1,13 @@
+{
+  "name": "web-translation-tool",
+  "version": "1.0.0",
+  "description": "网页翻译工具 — 支持多模型 AI 翻译",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  }
+}
